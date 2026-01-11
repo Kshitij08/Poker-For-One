@@ -1,0 +1,28 @@
+.submit-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 20px;
+}
+
+.submit-phase-instructions {
+  text-align: center;
+  max-width: 600px;
+}
+
+.submit-phase-instructions h2 {
+  margin: 0 0 12px 0;
+  color: #333;
+}
+
+.submit-phase-instructions p {
+  margin: 8px 0;
+  color: #666;
+}
+
+.submit-count {
+  font-size: 18px;
+  font-weight: bold;
+  color: #2196F3;
+}

@@ -300,6 +300,7 @@ export default function Poker7Game() {
   const [scores, setScores] = useState({ player: 0, ai: 0 });
   const [handResult, setHandResult] = useState({ winner: null, message: '' });
   const [playedHands, setPlayedHands] = useState({ player: [], ai: [], playerDetails: null, aiDetails: null });
+  const [usedCards, setUsedCards] = useState(new Set()); // Track all cards that have been discarded or played
 
   // Add resize listener for card icon responsiveness
   useEffect(() => {
@@ -311,6 +312,7 @@ export default function Poker7Game() {
   const startGame = () => {
     setScores({ player: 0, ai: 0 });
     setRound(1);
+    setUsedCards(new Set()); // Reset used cards at game start
     startRound();
   };
 
@@ -320,6 +322,7 @@ export default function Poker7Game() {
     const aHand = newDeck.slice(7, 14);
     const remainingDeck = newDeck.slice(14);
     
+    // Don't mark dealt cards as used yet - they'll be marked when discarded or played
     setDeck(remainingDeck);
     setPlayerHand(pHand);
     setAiHand(aHand);
@@ -350,28 +353,45 @@ export default function Poker7Game() {
   };
 
   const confirmDiscard = () => {
-    let currentDeck = [...deck];
+    // Filter deck to only include cards that haven't been used (discarded or played)
+    let currentDeck = deck.filter(card => !usedCards.has(card.id));
+    const newUsedCards = new Set(usedCards);
     
     // Handle player discard
     if (selectedIndices.length > 0) {
+      const discarded = selectedIndices.map(i => playerHand[i]);
+      
+      // Mark discarded cards as used - they can never be drawn again
+      discarded.forEach(card => newUsedCards.add(card.id));
+      
       const keptCards = playerHand.filter((_, i) => !selectedIndices.includes(i));
       const numToDraw = selectedIndices.length;
       const newCards = currentDeck.slice(0, numToDraw);
-      currentDeck = currentDeck.slice(numToDraw);
+      
+      // Remove drawn cards from deck
+      currentDeck = [...currentDeck.slice(numToDraw)]; // Ensure new array reference
       setPlayerHand([...keptCards, ...newCards]);
     }
     
     // Handle AI discard
     const aiDiscardIndices = getAiDiscardIndices(aiHand);
     if (aiDiscardIndices.length > 0) {
+      const discarded = aiDiscardIndices.map(i => aiHand[i]);
+      
+      // Mark discarded cards as used - they can never be drawn again
+      discarded.forEach(card => newUsedCards.add(card.id));
+      
       const keptAiCards = aiHand.filter((_, i) => !aiDiscardIndices.includes(i));
       const numAiToDraw = aiDiscardIndices.length;
       const newAiCards = currentDeck.slice(0, numAiToDraw);
-      currentDeck = currentDeck.slice(numAiToDraw);
+      
+      // Remove drawn cards from deck
+      currentDeck = [...currentDeck.slice(numAiToDraw)]; // Ensure new array reference
       setAiHand([...keptAiCards, ...newAiCards]);
     }
     
-    setDeck(currentDeck);
+    setUsedCards(newUsedCards);
+    setDeck([...currentDeck]); // Ensure new array reference for React state update
     setSelectedIndices([]);
     setGameState('PLAY');
   };
@@ -381,6 +401,12 @@ export default function Poker7Game() {
     const finalPlayerHand = selectedIndices.map(i => playerHand[i]);
     const playerEval = evaluateHand(finalPlayerHand);
     const { hand: finalAiHand, details: aiEval } = getBestHand(aiHand);
+
+    // Mark played cards as used
+    const newUsedCards = new Set(usedCards);
+    finalPlayerHand.forEach(card => newUsedCards.add(card.id));
+    finalAiHand.forEach(card => newUsedCards.add(card.id));
+    setUsedCards(newUsedCards);
 
     let winner = 'tie';
     if (playerEval.score > aiEval.score) winner = 'player';
@@ -413,7 +439,53 @@ export default function Poker7Game() {
       setGameState('GAME_OVER');
     } else {
       setRound(r => r + 1);
-      startRound();
+      
+      // Remove the 5 played cards from each hand, keep the remaining 2 cards
+      const playedPlayerCardIds = new Set(playedHands.player.map(c => c.id));
+      const playedAiCardIds = new Set(playedHands.ai.map(c => c.id));
+      
+      const remainingPlayerCards = playerHand.filter(card => !playedPlayerCardIds.has(card.id));
+      const remainingAiCards = aiHand.filter(card => !playedAiCardIds.has(card.id));
+      
+      // Calculate how many cards each player needs to get back to 7
+      const playerNeeds = 7 - remainingPlayerCards.length;
+      const aiNeeds = 7 - remainingAiCards.length;
+      
+      // Get available deck (excluding used cards)
+      let currentDeck = [...deck].filter(card => !usedCards.has(card.id));
+      
+      // If deck doesn't have enough cards, create a new deck from unused cards
+      if (currentDeck.length < (playerNeeds + aiNeeds)) {
+        // Create a new deck, excluding all used cards
+        const fullDeck = createDeck();
+        const availableCards = fullDeck.filter(card => !usedCards.has(card.id));
+        const shuffledAvailable = shuffleDeck(availableCards);
+        currentDeck = shuffledAvailable;
+      }
+      
+      // Draw cards for player
+      const newPlayerCards = currentDeck.slice(0, playerNeeds);
+      currentDeck = currentDeck.slice(playerNeeds);
+      
+      // Draw cards for AI
+      const newAiCards = currentDeck.slice(0, aiNeeds);
+      currentDeck = currentDeck.slice(aiNeeds);
+      
+      // Update hands: keep remaining cards + new cards
+      const updatedPlayerHand = [...remainingPlayerCards, ...newPlayerCards];
+      const updatedAiHand = [...remainingAiCards, ...newAiCards];
+      
+      setPlayerHand(updatedPlayerHand);
+      setAiHand(updatedAiHand);
+      
+      // Update deck
+      setDeck([...currentDeck]);
+      
+      // Reset round-specific state
+      setSelectedIndices([]);
+      setHandResult({ winner: null, message: '' });
+      setPlayedHands({ player: [], ai: [], playerDetails: null, aiDetails: null });
+      setGameState('DISCARD');
     }
   };
 
@@ -441,24 +513,26 @@ export default function Poker7Game() {
             </div>
         </div>
         
-        {/* Score Board */}
-        {gameState !== 'START' && (
-             <div className="flex w-full md:w-auto justify-between md:justify-start gap-4 md:gap-8 text-sm font-medium bg-blue-900/40 p-2 px-6 rounded-xl md:rounded-full border border-white/5">
-             <div className="flex flex-col items-center">
-                 <span className="text-slate-400 text-[10px] uppercase tracking-wider mb-0.5">Round</span>
-                 <span className="text-lg md:text-xl text-slate-200 font-bold">{round}/3</span>
-             </div>
-             <div className="h-8 w-px bg-white/10 self-center"></div>
-             <div className="flex flex-col items-center">
-                 <span className="text-cyan-400 text-[10px] uppercase tracking-wider mb-0.5">Player</span>
-                 <span className="text-lg md:text-xl text-slate-200 font-bold">{scores.player}</span>
-             </div>
-             <div className="flex flex-col items-center">
-                 <span className="text-rose-400 text-[10px] uppercase tracking-wider mb-0.5">Opponent</span>
-                 <span className="text-lg md:text-xl text-slate-200 font-bold">{scores.ai}</span>
-             </div>
-         </div>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Score Board */}
+          {gameState !== 'START' && (
+               <div className="flex w-full md:w-auto justify-between md:justify-start gap-4 md:gap-8 text-sm font-medium bg-blue-900/40 p-2 px-6 rounded-xl md:rounded-full border border-white/5">
+               <div className="flex flex-col items-center">
+                   <span className="text-slate-400 text-[10px] uppercase tracking-wider mb-0.5">Round</span>
+                   <span className="text-lg md:text-xl text-slate-200 font-bold">{round}/3</span>
+               </div>
+               <div className="h-8 w-px bg-white/10 self-center"></div>
+               <div className="flex flex-col items-center">
+                   <span className="text-cyan-400 text-[10px] uppercase tracking-wider mb-0.5">Player</span>
+                   <span className="text-lg md:text-xl text-slate-200 font-bold">{scores.player}</span>
+               </div>
+               <div className="flex flex-col items-center">
+                   <span className="text-rose-400 text-[10px] uppercase tracking-wider mb-0.5">Opponent</span>
+                   <span className="text-lg md:text-xl text-slate-200 font-bold">{scores.ai}</span>
+               </div>
+           </div>
+          )}
+        </div>
       </header>
 
       <main className="relative z-10 flex-grow flex flex-col items-center justify-between md:justify-center md:gap-8 container mx-auto px-4 py-6 max-w-6xl">
@@ -686,6 +760,7 @@ export default function Poker7Game() {
 
             </div>
         )}
+
       </main>
     </div>
   );

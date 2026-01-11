@@ -1,6 +1,8 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "buildCommand": "cd 'main game' && npm run build",
+  "outputDirectory": "main game/dist",
+  "installCommand": "cd 'main game' && npm install",
+  "framework": null,
   "rewrites": [
     {
       "source": "/favicon.ico",
